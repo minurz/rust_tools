@@ -1,44 +1,70 @@
-use rdev::{Event, EventType, Key, listen};
+use rdev::{grab, Event, EventType, Key};
 use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
+
+mod nircmd;
+use nircmd::nircmd::set_mic_volume;
 
 const TIME_SLEEP: u64 = 200;
 
 #[derive(Default)]
 struct KeyState {
-    alt: bool,
+    lalt: bool,
+    ralt: bool,
     ctrl: bool,
     last_press: Option<Instant>,
-    //double_press_detected: bool,
 }
 
-fn callback(event: Event, state: Arc<Mutex<KeyState>>) {
+impl KeyState {
+    fn alt(&self) -> bool {
+        self.lalt || self.ralt
+    }
+}
+
+fn callback(event: Event, state: Arc<Mutex<KeyState>>) -> Option<Event> { // Callback function to handle key events
     match event.event_type {
         EventType::KeyPress(key) => {
             match key {
-                Key::Alt | Key::AltGr => state.lock().unwrap().alt = true,
+                // Bind Keys
+                Key::Alt => state.lock().unwrap().lalt = true,
+                Key::AltGr => state.lock().unwrap().ralt = true,
                 Key::ControlLeft | Key::ControlRight => state.lock().unwrap().ctrl = true,
+                // Trigger Keys
+                Key::Tab => {
+                    let s = state.lock().unwrap();
+                    if s.lalt {
+                        // println!("LAlt + Tab detected!");
+                        return None // prevent LAlt + Tab from being sent to the OS
+                    }
+                }
                 Key::Slash => {
-                    if state.lock().unwrap().alt && state.lock().unwrap().ctrl {
+                    let mut s = state.lock().unwrap();
+                    if s.alt() && s.ctrl {
                         //println!("{:?}, {:?} + slash!", state.alt, state.ctrl)
                         let now = Instant::now();
                         let threshold = Duration::from_millis(TIME_SLEEP);
-                        let ready = state.lock().unwrap().last_press
-                            .is_none_or(|last| now.duration_since(last) >= threshold); // true if time since last press >= 200ms (or None), otherwise false
+
                         let state_clone = Arc::clone(&state);
-                        if !ready {
-                            println!("Double press detected!");
-                            state.lock().unwrap().last_press = None;
+                        let is_double = !s.last_press.is_none_or(|last| now.duration_since(last) >= threshold); // Check if the last press was within the time threshold
+                        s.last_press = Some(now);
+
+                        if is_double {
+                            println!("MIC 15!");
+                            set_mic_volume(9830);
+                            s.last_press = None;
+                            //drop(s);
                         }
                         else {
+                            drop(s);
                             std::thread::spawn(move || {
                                 std::thread::sleep(threshold);
                                 if state_clone.lock().unwrap().last_press == Some(now) {
-                                    println!("Single press detected!");
+                                    println!("MIC 71!");
+                                    set_mic_volume(46530);
                                 }
                             });
-                            state.lock().unwrap().last_press = Some(now);
                         }
+                        
                         
                         // println!("lock detected! {:?}", state.lock().unwrap().last_press);
                     }
@@ -48,17 +74,20 @@ fn callback(event: Event, state: Arc<Mutex<KeyState>>) {
         }
         EventType::KeyRelease(key) => {
             match key {
-                Key::Alt | Key::AltGr => state.lock().unwrap().alt = false,
+                Key::Alt => state.lock().unwrap().lalt = false,
+                Key::AltGr => state.lock().unwrap().ralt = false,
                 Key::ControlLeft | Key::ControlRight => state.lock().unwrap().ctrl = false,
                 _ => {}
             }
         }
         _ => {}
     }
+    Some(event)
 }
 
 fn main() {
-    let state = Arc::new(Mutex::new(KeyState::default()));
-    listen(move |event| callback(event, Arc::clone(&state)))
-    .unwrap();
+    let state = Arc::new(Mutex::new(KeyState::default())); // Create a shared state for key states
+    if let Err(error) = grab(move |event| callback(event, Arc::clone(&state))) {
+        eprintln!("Grab failed: {:?}", error);
+    }
 }
