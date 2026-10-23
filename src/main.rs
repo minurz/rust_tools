@@ -1,8 +1,11 @@
+#![windows_subsystem = "windows"]
+
 use rdev::{grab, Event, EventType, Key};
 use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
 
 mod nircmd;
+use nircmd::tooltip::show_tooltip;
 use nircmd::nircmd::set_mic_volume;
 
 const TIME_SLEEP: u64 = 200;
@@ -49,7 +52,7 @@ fn callback(event: Event, state: Arc<Mutex<KeyState>>) -> Option<Event> { // Cal
                         s.last_press = Some(now);
 
                         if is_double {
-                            println!("MIC 15!");
+                            show_tooltip("MIC 15"); // println!("MIC 15!");
                             set_mic_volume(9830);
                             s.last_press = None;
                             //drop(s);
@@ -59,7 +62,7 @@ fn callback(event: Event, state: Arc<Mutex<KeyState>>) -> Option<Event> { // Cal
                             std::thread::spawn(move || {
                                 std::thread::sleep(threshold);
                                 if state_clone.lock().unwrap().last_press == Some(now) {
-                                    println!("MIC 71!");
+                                    show_tooltip("MIC 71"); // println!("MIC 71!");
                                     set_mic_volume(46530);
                                 }
                             });
